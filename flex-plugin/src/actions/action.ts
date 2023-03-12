@@ -6,6 +6,71 @@ export const registerActions = async (
   flex: typeof Flex,
   manager: Flex.Manager
 ) => {
+  /******************************************************
+   *
+   * Ensure task is a Conversation Based Messaging task
+   *
+   ******************************************************/
+
+  if (manager && manager.workerClient) {
+    manager.workerClient.on("reservationCreated", function (reservation) {
+      reservation.on(
+        "canceled",
+        (payload: {
+          canceledReasonCode: number;
+          task: { attributes: { conversationSid: any } };
+        }) => {
+          if (payload.canceledReasonCode === 50433) {
+            const body = {
+              Token: manager.user.token,
+              conversationSid: payload.task.attributes.conversationSid,
+              identity:
+                Flex.Manager.getInstance().conversationsClient.user.identity,
+            };
+
+            const url = `${process.env.FLEX_APP_SERVERLESS_DOMAIN}/api/remove_participant`;
+
+            if (!url) {
+              console.log(
+                "reservationCreated workaround error, URL not configured"
+              );
+              return;
+            }
+
+            fetch(url, {
+              method: "post",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            })
+              .then((response) => {
+                /****************************************************
+                 *
+                 * Tell the we removed them from the conversation
+                 *
+                 ****************************************************/
+                Notifications.showNotification("leftConversation");
+                console.log(
+                  "reservationCreated workaround have left the conversation"
+                );
+              })
+              .catch(async (err) => {
+                /****************************************************
+                 *
+                 * Tell the user an issue occured
+                 *
+                 ****************************************************/
+                Notifications.showNotification("leftConversationError");
+                console.log(
+                  "reservationCreated workaround error attempting to leave",
+                  err
+                );
+              });
+          }
+        }
+      );
+    });
+  }
+
   const leaveConversation: ActionFunction = async (payload: any) => {
     console.log("LeaveConversation action fired");
     /******************************************************
